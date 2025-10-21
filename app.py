@@ -1,8 +1,6 @@
 from flask import Flask, render_template, request, jsonify, send_file
 import yt_dlp
 import os
-import base64
-import stat
 import time
 import traceback
 from urllib.parse import urlparse
@@ -11,8 +9,6 @@ app = Flask(__name__)
 
 # Use Render's ephemeral storage
 DOWNLOAD_FOLDER = "/tmp/downloads"
-COOKIE_PATH = "/tmp/youtube.com_cookies.txt"
-COOKIES_ENV_NAME = "YOUTUBE_COOKIES_B64"
 
 # Create downloads folder if it doesn't exist
 if not os.path.exists(DOWNLOAD_FOLDER):
@@ -26,29 +22,6 @@ def is_valid_youtube_url(url):
         return any(domain in parsed.netloc for domain in valid_domains)
     except Exception:
         return False
-
-def write_cookiefile_from_env():
-    """If YOUTUBE_COOKIES_B64 exists in env, decode and write binary cookie file."""
-    b64 = os.environ.get(COOKIES_ENV_NAME)
-    if not b64:
-        print("No YOUTUBE_COOKIES_B64 env var found — cookie file will not be written.")
-        return False
-    try:
-        data = base64.b64decode(b64)
-        with open(COOKIE_PATH, "wb") as f:
-            f.write(data)
-        try:
-            os.chmod(COOKIE_PATH, stat.S_IRUSR | stat.S_IWUSR)
-        except Exception:
-            pass
-        print(f"Wrote cookie file to {COOKIE_PATH}")
-        return True
-    except Exception as e:
-        print("Failed to write cookie file from env:", e)
-        return False
-
-# Write cookie file on startup
-write_cookiefile_from_env()
 
 def build_ydl_opts(extra=None):
     """Return a yt-dlp options dict."""
@@ -67,9 +40,6 @@ def build_ydl_opts(extra=None):
         },
         'outtmpl': f'{DOWNLOAD_FOLDER}/%(title).100s.%(ext)s',
     }
-    if os.path.exists(COOKIE_PATH):
-        opts['cookiefile'] = COOKIE_PATH
-        print("Using cookies file for authentication")
     
     if extra:
         opts.update(extra)
@@ -86,36 +56,49 @@ def get_video_info(url):
         return {'error': 'Invalid YouTube URL. Please use a valid YouTube link.'}
     
     try:
-        ydl_opts = build_ydl_opts({
+        # Use minimal options to avoid encoding issues
+        ydl_opts = {
+            'quiet': True,
+            'no_warnings': True,
             'skip_download': True,
-        })
+            'ignoreerrors': True,
+        }
         
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
-            print(f"Successfully extracted info for: {info.get('title', 'Unknown')}")
+            
+            if not info:
+                return {'error': 'No video information found'}
             
             # Get available formats
             formats = info.get("formats", [])
-            print(f"Found {len(formats)} formats")
+            resolutions = []
             
-            # Extract unique resolutions
-            video_formats = [f for f in formats if f.get('vcodec') != 'none']
-            resolutions = sorted(
-                {f.get("height") for f in video_formats if f.get("height") and f.get("height") >= 144},
-                reverse=True
-            )
+            for fmt in formats:
+                height = fmt.get('height')
+                if height and height >= 144:
+                    resolutions.append(height)
             
-            result = {
+            resolutions = sorted(set(resolutions), reverse=True)
+            
+            # Format duration
+            duration = info.get('duration', 0)
+            if duration:
+                minutes = duration // 60
+                seconds = duration % 60
+                duration_str = f"{minutes}:{seconds:02d}"
+            else:
+                duration_str = "Unknown"
+            
+            return {
                 'title': info.get('title', 'Unknown Title'),
                 'thumbnail': info.get('thumbnail', ''),
-                'duration': info.get('duration', 0),
+                'duration': duration_str,
+                'duration_seconds': duration,
                 'resolutions': [str(r) + "p" for r in resolutions] + ['mp3'],
                 'uploader': info.get('uploader', 'Unknown'),
                 'view_count': info.get('view_count', 0),
             }
-            
-            print(f"Returning info with {len(result['resolutions'])} quality options")
-            return result
             
     except yt_dlp.utils.DownloadError as e:
         error_msg = str(e)
@@ -126,7 +109,7 @@ def get_video_info(url):
         elif 'Members-only' in error_msg:
             return {'error': 'This is a members-only video'}
         elif 'Sign in' in error_msg or 'login' in error_msg.lower():
-            return {'error': 'blocked', 'message': 'YouTube is requiring login. This server needs authentication cookies to access this video.'}
+            return {'error': 'YouTube is requiring login. Try a different video.'}
         elif 'Video unavailable' in error_msg:
             return {'error': 'This video is unavailable or has been removed'}
         elif 'Too Many Requests' in error_msg or '429' in error_msg:
@@ -134,45 +117,12 @@ def get_video_info(url):
         elif 'Unsupported URL' in error_msg:
             return {'error': 'Unsupported URL or invalid YouTube link'}
         else:
-            return {'error': f'YouTube error: {error_msg}'}
+            return {'error': 'Could not access this video. Please try a different one.'}
             
-    except yt_dlp.utils.ExtractorError as e:
-        error_msg = str(e)
-        print(f"ExtractorError: {error_msg}")
-        return {'error': 'Failed to extract video information. The video might be restricted.'}
-        
-    except UnicodeDecodeError as ude:
-        print(f"UnicodeDecodeError: {ude}")
-        # Retry with simplified options
-        try:
-            print("Retrying with simplified options...")
-            ydl_opts = {
-                'quiet': True,
-                'skip_download': True,
-                'no_warnings': True,
-            }
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(url, download=False)
-                formats = info.get("formats", [])
-                resolutions = sorted(
-                    {f.get("height") for f in formats if f.get("height") and f.get("height") >= 144},
-                    reverse=True
-                )
-                return {
-                    'title': info.get('title', 'Unknown Title'),
-                    'thumbnail': info.get('thumbnail', ''),
-                    'duration': info.get('duration', 0),
-                    'resolutions': [str(r) + "p" for r in resolutions] + ['mp3'],
-                    'uploader': info.get('uploader', 'Unknown'),
-                }
-        except Exception as retry_error:
-            return {'error': 'Character encoding issue. Please try a different video.'}
-        
     except Exception as e:
         error_msg = str(e)
         print(f"Unexpected error in get_video_info: {error_msg}")
-        print(traceback.format_exc())
-        return {'error': 'Failed to fetch video information. Please check the URL and try again.'}
+        return {'error': 'Failed to fetch video information. Please try again.'}
 
 def get_video_info_with_retry(url, max_retries=2):
     """Get video info with retry logic"""
@@ -186,15 +136,15 @@ def get_video_info_with_retry(url, max_retries=2):
             print(f"Attempt {attempt + 1} failed with exception: {e}")
         
         if attempt < max_retries - 1:
-            time.sleep(1)  # Wait 1 second before retry
+            time.sleep(1)
     
-    return {'error': 'All attempts failed. Please try again later.'}
+    return {'error': 'Could not fetch video information. Please try a different video.'}
 
 def download_video(url, resolution):
     """Download video with specified resolution"""
     try:
         ydl_opts = build_ydl_opts({
-            'format': f'bestvideo[height<={resolution}]+bestaudio/best[height<={resolution}]',
+            'format': f'best[height<={resolution}]/best',
             'merge_output_format': 'mp4'
         })
         
@@ -244,10 +194,7 @@ def get_formats():
         return jsonify({'error': 'No URL provided'}), 400
     
     info = get_video_info_with_retry(url)
-    print(f"Returning info: {info}")
-    
-    if 'error' in info:
-        return jsonify(info), 200
+    print(f"Returning info: {'Success' if 'error' not in info else 'Error'}")
     
     return jsonify(info), 200
 
@@ -278,7 +225,6 @@ def download():
         
     except Exception as e:
         print(f"Download error: {e}")
-        print(traceback.format_exc())
         return f"Download failed: {str(e)}", 500
 
 @app.route('/health')
@@ -297,24 +243,8 @@ def not_found(e):
 def internal_error(e):
     return jsonify({'error': 'Internal server error'}), 500
 
-# Cleanup old files (basic implementation)
-def cleanup_old_files():
-    """Remove files older than 1 hour from downloads folder"""
-    try:
-        current_time = time.time()
-        for filename in os.listdir(DOWNLOAD_FOLDER):
-            filepath = os.path.join(DOWNLOAD_FOLDER, filename)
-            if os.path.isfile(filepath):
-                # Remove files older than 1 hour
-                if current_time - os.path.getctime(filepath) > 3600:
-                    os.remove(filepath)
-                    print(f"Cleaned up: {filename}")
-    except Exception as e:
-        print(f"Cleanup error: {e}")
-
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
     print(f"Starting server on port {port}")
     print(f"Download folder: {DOWNLOAD_FOLDER}")
-    print(f"Cookie file exists: {os.path.exists(COOKIE_PATH)}")
     app.run(host="0.0.0.0", port=port, debug=False)

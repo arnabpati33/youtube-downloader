@@ -1,0 +1,139 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>YouTube Video Downloader</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div class="overlay"></div>
+  <div class="container">
+    <h1 class="glow">YouTube Downloader</h1>
+    <p style="color: #ccc; margin-bottom: 20px;">Download videos and audio from YouTube</p>
+
+    <input id="url" type="text" placeholder="Paste YouTube link here..." />
+    
+    <div class="btn-row">
+      <button id="checkBtn">Check Video</button>
+      <select id="quality">
+        <option value="">Select quality</option>
+        <option value="mp3">MP3 Audio</option>
+      </select>
+    </div>
+
+    <div id="message" style="min-height: 20px; margin: 10px 0;"></div>
+
+    <div id="videoInfo" class="hidden">
+      <img id="thumb" src="" alt="Video thumbnail">
+      <h2 id="title"></h2>
+      <div style="display: flex; justify-content: space-between; color: #00ffff; font-size: 0.9rem;">
+        <span id="duration"></span>
+        <span id="uploader"></span>
+      </div>
+    </div>
+
+    <form id="dlForm" method="POST" action="/download">
+      <input type="hidden" name="url" id="form_url">
+      <input type="hidden" name="quality" id="form_quality">
+      <button type="submit" class="download-btn">Download Now</button>
+    </form>
+  </div>
+
+  <footer>
+    For <span>educational purposes</span> only
+  </footer>
+
+<script>
+document.getElementById('checkBtn').addEventListener('click', async () => {
+  const url = document.getElementById('url').value.trim();
+  const msg = document.getElementById('message');
+  const quality = document.getElementById('quality');
+  const videoInfo = document.getElementById('videoInfo');
+  
+  if (!url) {
+    showMessage('Please paste a YouTube URL', 'error');
+    return;
+  }
+
+  showMessage('Checking video...', 'loading');
+  videoInfo.classList.add('hidden');
+  quality.innerHTML = '<option value="mp3">MP3 Audio</option>';
+  
+  try {
+    const form = new FormData();
+    form.append('url', url);
+    
+    const res = await fetch('/get_formats', {
+      method: 'POST', 
+      body: form
+    });
+    
+    const data = await res.json();
+    
+    if (data.error) {
+      if (data.error === 'blocked') {
+        showMessage(data.message, 'error');
+      } else {
+        showMessage('Error: ' + (data.message || data.error), 'error');
+      }
+      return;
+    }
+    
+    showMessage('Video loaded successfully!', 'success');
+    
+    // Update video info
+    document.getElementById('thumb').src = data.thumbnail;
+    document.getElementById('title').textContent = data.title;
+    
+    const mins = Math.floor(data.duration / 60);
+    const secs = (data.duration % 60).toString().padStart(2, '0');
+    document.getElementById('duration').textContent = `${mins}:${secs}`;
+    document.getElementById('uploader').textContent = data.uploader || 'Unknown';
+    
+    // Update quality options
+    data.resolutions.forEach(res => {
+      const opt = document.createElement('option');
+      opt.value = res.replace('p', '');
+      opt.textContent = res;
+      quality.appendChild(opt);
+    });
+    
+    document.getElementById('form_url').value = url;
+    videoInfo.classList.remove('hidden');
+    
+  } catch (e) {
+    showMessage('Network error - please try again', 'error');
+    console.error('Error:', e);
+  }
+});
+
+document.getElementById('dlForm').addEventListener('submit', function(e) {
+  const quality = document.getElementById('quality').value;
+  if (!quality) {
+    e.preventDefault();
+    showMessage('Please select a quality option', 'error');
+    return;
+  }
+  document.getElementById('form_quality').value = quality;
+  showMessage('Starting download...', 'loading');
+});
+
+function showMessage(text, type) {
+  const msg = document.getElementById('message');
+  msg.textContent = text;
+  msg.style.color = type === 'error' ? '#ff4444' : 
+                    type === 'success' ? '#00ff00' : 
+                    type === 'loading' ? '#00ffff' : '#ffcc00';
+}
+
+// Enter key support
+document.getElementById('url').addEventListener('keypress', function(e) {
+  if (e.key === 'Enter') {
+    document.getElementById('checkBtn').click();
+  }
+});
+</script>
+</body>
+</html>

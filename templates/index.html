@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>YouTube Video Downloader</title>
+  <title>YouTube Downloader</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
   <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600&display=swap" rel="stylesheet">
 </head>
@@ -12,6 +12,18 @@
   <div class="container">
     <h1 class="glow">YouTube Downloader</h1>
     <p style="color: #ccc; margin-bottom: 20px;">Download videos and audio from YouTube</p>
+
+    <!-- Cookie Instructions Section -->
+    <div id="cookie-info" style="background: rgba(255,193,7,0.1); border: 1px solid #ffc107; padding: 15px; border-radius: 10px; margin-bottom: 20px; display: none;">
+      <h3 style="color: #ffc107; margin-top: 0;">🔒 Authentication Required</h3>
+      <p style="margin: 10px 0; color: #fff;">YouTube is blocking requests. To fix this:</p>
+      <ol style="color: #ccc; text-align: left; margin: 10px 0;">
+        <li>Install the <a href="https://addons.mozilla.org/en-US/firefox/addon/cookies-txt/" target="_blank" style="color: #00ffff;">cookies.txt Firefox extension</a></li>
+        <li>Go to YouTube and log in</li>
+        <li>Export cookies and send the file to the server admin</li>
+      </ol>
+      <button onclick="hideCookieInfo()" style="background: #ffc107; color: #000; border: none; padding: 8px 15px; border-radius: 5px; cursor: pointer;">Got it</button>
+    </div>
 
     <input id="url" type="text" placeholder="Paste YouTube link here..." />
     
@@ -39,6 +51,39 @@
       <input type="hidden" name="quality" id="form_quality">
       <button type="submit" class="download-btn">Download Now</button>
     </form>
+
+    <!-- Detailed Instructions Section -->
+    <div style="margin-top: 30px; padding: 20px; background: rgba(255,255,255,0.05); border-radius: 10px;">
+      <h3 style="color: #00ffff; margin-top: 0;">📋 How to Fix YouTube Blocking</h3>
+      <div style="text-align: left; color: #ccc;">
+        <h4 style="color: #ffc107;">Step 1: Get Cookies Extension</h4>
+        <p>Install the <a href="https://addons.mozilla.org/en-US/firefox/addon/cookies-txt/" target="_blank" style="color: #00ffff;">cookies.txt extension for Firefox</a></p>
+        
+        <h4 style="color: #ffc107;">Step 2: Export YouTube Cookies</h4>
+        <ul>
+          <li>Open Firefox and go to <a href="https://youtube.com" target="_blank" style="color: #00ffff;">YouTube.com</a></li>
+          <li>Make sure you're logged into your Google account</li>
+          <li>Right-click on the page and select "Export Cookies"</li>
+          <li>Save the file as <code>youtube.com_cookies.txt</code></li>
+        </ul>
+        
+        <h4 style="color: #ffc107;">Step 3: Convert to Base64</h4>
+        <p>Use this online tool: <a href="https://www.base64encode.org/" target="_blank" style="color: #00ffff;">Base64 Encode</a></p>
+        <ul>
+          <li>Open the cookies.txt file in a text editor</li>
+          <li>Copy ALL the content</li>
+          <li>Paste into the base64 encoder</li>
+          <li>Copy the base64 result</li>
+        </ul>
+        
+        <h4 style="color: #ffc107;">Step 4: Send to Admin</h4>
+        <p>Send the base64 string to the server administrator to add to the environment variables.</p>
+        
+        <div style="background: rgba(0,255,255,0.1); padding: 10px; border-radius: 5px; margin-top: 10px;">
+          <strong>Note:</strong> This is needed because YouTube blocks automated requests from cloud servers. Cookies help YouTube recognize the requests as coming from a real user.
+        </div>
+      </div>
+    </div>
   </div>
 
   <footer>
@@ -46,6 +91,29 @@
   </footer>
 
 <script>
+// Show/hide cookie info
+function showCookieInfo() {
+    document.getElementById('cookie-info').style.display = 'block';
+}
+
+function hideCookieInfo() {
+    document.getElementById('cookie-info').style.display = 'none';
+}
+
+// Enhanced message display
+function showMessage(text, type) {
+    const msg = document.getElementById('message');
+    msg.innerHTML = text;
+    msg.style.color = type === 'error' ? '#ff4444' : 
+                      type === 'success' ? '#00ff00' : 
+                      type === 'warning' ? '#ffcc00' : '#00ffff';
+    
+    // Show cookie instructions for blocked errors
+    if (text.includes('blocked') || text.includes('cookies') || text.includes('Sign in')) {
+        showCookieInfo();
+    }
+}
+
 document.getElementById('checkBtn').addEventListener('click', async () => {
   const url = document.getElementById('url').value.trim();
   const msg = document.getElementById('message');
@@ -86,10 +154,7 @@ document.getElementById('checkBtn').addEventListener('click', async () => {
     // Update video info
     document.getElementById('thumb').src = data.thumbnail;
     document.getElementById('title').textContent = data.title;
-    
-    const mins = Math.floor(data.duration / 60);
-    const secs = (data.duration % 60).toString().padStart(2, '0');
-    document.getElementById('duration').textContent = `${mins}:${secs}`;
+    document.getElementById('duration').textContent = data.duration;
     document.getElementById('uploader').textContent = data.uploader || 'Unknown';
     
     // Update quality options
@@ -120,20 +185,29 @@ document.getElementById('dlForm').addEventListener('submit', function(e) {
   showMessage('Starting download...', 'loading');
 });
 
-function showMessage(text, type) {
-  const msg = document.getElementById('message');
-  msg.textContent = text;
-  msg.style.color = type === 'error' ? '#ff4444' : 
-                    type === 'success' ? '#00ff00' : 
-                    type === 'loading' ? '#00ffff' : '#ffcc00';
-}
-
 // Enter key support
 document.getElementById('url').addEventListener('keypress', function(e) {
   if (e.key === 'Enter') {
     document.getElementById('checkBtn').click();
   }
 });
+
+// Test function for different videos
+function testVideo(url) {
+  document.getElementById('url').value = url;
+  document.getElementById('checkBtn').click();
+}
 </script>
+
+<!-- Test Videos Section -->
+<div style="margin: 20px auto; max-width: 600px;">
+  <h4 style="color: #00ffff;">Test with these videos:</h4>
+  <div style="display: flex; gap: 10px; justify-content: center; flex-wrap: wrap;">
+    <button onclick="testVideo('https://www.youtube.com/watch?v=jNQXAC9IVRw')" style="padding: 5px 10px; font-size: 0.8rem;">First YouTube Video</button>
+    <button onclick="testVideo('https://www.youtube.com/watch?v=9bZkp7q19f0')" style="padding: 5px 10px; font-size: 0.8rem;">Gangnam Style</button>
+    <button onclick="testVideo('https://www.youtube.com/watch?v=dQw4w9WgXcQ')" style="padding: 5px 10px; font-size: 0.8rem;">Rick Roll</button>
+  </div>
+</div>
+
 </body>
 </html>
